@@ -4,34 +4,37 @@ import Heading from './Heading';
 import Text from './Text';
 import Button from './Button';
 import Callout from './Callout';
-import { StorageProviderType } from '../../types/api';
 import { Dispatch } from '../store';
-import Box from './Box';
 import { storageTypeSelector } from '@/selectors';
 import Stack from './Stack';
+import { Tabs } from '@/constants/Tabs';
+import { StorageProviderType } from '@/constants/StorageProviderType';
 
 function StartScreen() {
   const dispatch = useDispatch<Dispatch>();
 
   const storageType = useSelector(storageTypeSelector);
-  const onSetDefaultTokens = () => {
-    dispatch.uiState.setActiveTab('tokens');
+
+  const onSetDefaultTokens = React.useCallback(() => {
+    dispatch.uiState.setActiveTab(Tabs.TOKENS);
     dispatch.tokenState.setEmptyTokens();
-  };
-  const onSetSyncClick = () => {
-    dispatch.uiState.setActiveTab('syncsettings');
+  }, [dispatch]);
+
+  const onSetSyncClick = React.useCallback(() => {
+    dispatch.uiState.setActiveTab(Tabs.TOKENS);
     dispatch.tokenState.setEmptyTokens();
     dispatch.uiState.setLocalApiState({
       ...storageType,
-      secret: '',
+      provider: storageType.provider,
       new: true,
     });
-  };
+  }, [dispatch, storageType]);
 
   return (
-    <div className="h-auto p-4 my-auto">
+    <div className="h-auto p-4 my-auto content scroll-container">
       <Stack direction="column" gap={4}>
         <a href="https://jansix.at/resources/figma-tokens?ref=figma-tokens-plugin" target="_blank" rel="noreferrer">
+          {/* eslint-disable-next-line */}
           <img alt="Figma Tokens Splashscreen" src={require('../assets/tokens-intro.jpg')} className="rounded" />
         </a>
         <Stack direction="column" gap={2}>
@@ -53,15 +56,15 @@ function StartScreen() {
           </Button>
         </Stack>
         {storageType?.provider !== StorageProviderType.LOCAL && (
-        <Callout
-          id="callout-action-setupsync"
-          heading="Remote storage detected"
-          description={`This document is setup with a remote token source on ${storageType.provider}. Ask your team for the credentials, then enter them in the Sync dialog.`}
-          action={{
-            onClick: onSetSyncClick,
-            text: 'Set up sync',
-          }}
-        />
+          <Callout
+            id="callout-action-setupsync"
+            heading="Remote storage detected"
+            description={`This document is setup with a remote token source on ${storageType.provider}. Ask your team for the credentials, then enter them in the Sync dialog.`}
+            action={{
+              onClick: onSetSyncClick,
+              text: 'Set up sync',
+            }}
+          />
         )}
       </Stack>
     </div>

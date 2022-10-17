@@ -1,8 +1,5 @@
-import { useSelector } from 'react-redux';
-import { useCallback, useMemo } from 'react';
-import isEqual from 'lodash.isequal';
-import { postToFigma } from '@/plugin/notifiers';
-import { MessageToPluginTypes } from '@/types/messages';
+import { useDispatch, useSelector, useStore } from 'react-redux';
+import { useCallback, useMemo, useContext } from 'react';
 import {
   AnyTokenList,
   SingleToken,
@@ -10,7 +7,6 @@ import {
 import stringifyTokens from '@/utils/stringifyTokens';
 import formatTokens from '@/utils/formatTokens';
 import { mergeTokenGroups, resolveTokenValues } from '@/plugin/tokenHelpers';
-import { UpdateMode } from '@/types/state';
 import useConfirm from '../hooks/useConfirm';
 import { Properties } from '@/constants/Properties';
 import { track } from '@/utils/analytics';
@@ -21,8 +17,15 @@ import {
   tokensSelector,
   usedTokenSetSelector,
 } from '@/selectors';
-
-// @TODO fix typings
+import { TokenSetStatus } from '@/constants/TokenSetStatus';
+import { TokenTypes } from '@/constants/TokenTypes';
+import { isEqual } from '@/utils/isEqual';
+import { UpdateMode } from '@/constants/UpdateMode';
+import { AsyncMessageTypes } from '@/types/AsyncMessages';
+import { AsyncMessageChannel } from '@/AsyncMessageChannel';
+import { NodeInfo } from '@/types/NodeInfo';
+import { TokensContext } from '@/context';
+import { Dispatch, RootState } from '../store';
 
 type ConfirmResult =
   ('textStyles' | 'colorStyles' | 'effectStyles')[]
@@ -33,16 +36,20 @@ type GetFormattedTokensOptions = {
   includeParent: boolean;
   expandTypography: boolean;
   expandShadow: boolean;
+  expandComposition: boolean;
 };
 
-type RemoveTokensByValueData = { property: Properties; nodes: string[] }[];
+type RemoveTokensByValueData = { property: Properties; nodes: NodeInfo[] }[];
 
 export default function useTokens() {
+  const dispatch = useDispatch<Dispatch>();
   const usedTokenSet = useSelector(usedTokenSetSelector);
   const activeTokenSet = useSelector(activeTokenSetSelector);
   const tokens = useSelector(tokensSelector);
   const settings = useSelector(settingsStateSelector, isEqual);
   const { confirm } = useConfirm<ConfirmResult>();
+  const store = useStore<RootState>();
+  const tokensContext = useContext(TokensContext);
 
   // Gets value of token
   const getTokenValue = useCallback((name: string, resolved: AnyTokenList) => (
@@ -57,11 +64,11 @@ export default function useTokens() {
   // Returns formatted tokens for style dictionary
   const getFormattedTokens = useCallback((opts: GetFormattedTokensOptions) => {
     const {
-      includeAllTokens = false, includeParent = true, expandTypography = false, expandShadow = false,
+      includeAllTokens = false, includeParent = true, expandTypography = false, expandShadow = false, expandComposition = false,
     } = opts;
     const tokenSets = includeAllTokens ? Object.keys(tokens) : [activeTokenSet];
     return formatTokens({
-      tokens, tokenSets, includeAllTokens, includeParent, expandTypography, expandShadow,
+      tokens, tokenSets, resolvedTokens: tokensContext.resolvedTokens, includeAllTokens, includeParent, expandTypography, expandShadow, expandComposition,
     });
   }, [tokens, activeTokenSet]);
 
@@ -90,8 +97,8 @@ export default function useTokens() {
         effectStyles: userDecision.data.includes('effectStyles'),
       });
 
-      postToFigma({
-        type: MessageToPluginTypes.PULL_STYLES,
+      AsyncMessageChannel.ReactInstance.message({
+        type: AsyncMessageTypes.PULL_STYLES,
         styleTypes: {
           textStyles: userDecision.data.includes('textStyles'),
           colorStyles: userDecision.data.includes('colorStyles'),
@@ -104,60 +111,114 @@ export default function useTokens() {
   const removeTokensByValue = useCallback((data: RemoveTokensByValueData) => {
     track('removeTokensByValue', { count: data.length });
 
-    postToFigma({
-      type: MessageToPluginTypes.REMOVE_TOKENS_BY_VALUE,
+    AsyncMessageChannel.ReactInstance.message({
+      type: AsyncMessageTypes.REMOVE_TOKENS_BY_VALUE,
       tokensToRemove: data,
     });
   }, []);
 
-  const handleRemap = useCallback(async (type: Properties, name: string) => {
-    const userDecision = await confirm({
-      text: `Choose a new token for ${name}`,
-      input: {
-        type: 'text',
-        placeholder: 'New token name',
-      },
-      confirmAction: 'Remap',
+  const handleRemap = useCallback(async (type: Properties | TokenTypes, name: string, newTokenName: string, resolvedTokens: SingleToken[]) => {
+    const settings = settingsStateSelector(store.getState());
+    track('remapToken', { fromInspect: true });
+    AsyncMessageChannel.ReactInstance.message({
+      type: AsyncMessageTypes.REMAP_TOKENS,
+      category: type,
+      oldName: name,
+      newName: newTokenName,
+      updateMode: UpdateMode.SELECTION,
+      tokens: resolvedTokens,
+      settings,
     });
-
-    if (userDecision && typeof userDecision.data === 'string') {
-      track('remapToken', { fromInspect: true });
-
-      postToFigma({
-        type: MessageToPluginTypes.REMAP_TOKENS,
-        category: type,
-        oldName: name,
-        newName: userDecision.data,
-        updateMode: UpdateMode.SELECTION,
-      });
-    }
   }, [confirm]);
+
+  const handleBulkRemap = useCallback(async (newName: string, oldName: string) => {
+    track('bulkRemapToken', { fromInspect: true });
+    AsyncMessageChannel.ReactInstance.message({
+      type: AsyncMessageTypes.BULK_REMAP_TOKENS,
+      oldName,
+      newName,
+    });
+  }, []);
 
   // Calls Figma with an old name and new name and asks it to update all tokens that use the old name
   const remapToken = useCallback(async (oldName: string, newName: string, updateMode?: UpdateMode) => {
     track('remapToken', { fromRename: true });
 
-    postToFigma({
-      type: MessageToPluginTypes.REMAP_TOKENS,
+    AsyncMessageChannel.ReactInstance.message({
+      type: AsyncMessageTypes.REMAP_TOKENS,
       oldName,
       newName,
       updateMode: updateMode || settings.updateMode,
     });
   }, [settings.updateMode]);
 
-  // Calls Figma with all tokens to create styles
-  const createStylesFromTokens = useCallback(() => {
-    track('createStyles');
-
-    const resolved = resolveTokenValues(mergeTokenGroups(tokens, usedTokenSet));
-    const withoutIgnored = resolved.filter((token) => !token.name.split('.').some((part) => part.startsWith('_')));
-
-    postToFigma({
-      type: MessageToPluginTypes.CREATE_STYLES,
-      tokens: withoutIgnored,
-      settings,
+  const remapTokensInGroup = useCallback(async ({ oldGroupName, newGroupName }: { oldGroupName: string, newGroupName: string }) => {
+    const shouldRemap = await confirm({
+      text: `Remap all tokens that use tokens in ${oldGroupName} group?`,
+      description: 'This will change all layers that used the old token name. This could take a while.',
+      choices: [
+        {
+          key: UpdateMode.SELECTION, label: 'Selection', unique: true, enabled: UpdateMode.SELECTION === settings.updateMode,
+        },
+        {
+          key: UpdateMode.PAGE, label: 'Page', unique: true, enabled: UpdateMode.PAGE === settings.updateMode,
+        },
+        {
+          key: UpdateMode.DOCUMENT, label: 'Document', unique: true, enabled: UpdateMode.DOCUMENT === settings.updateMode,
+        },
+      ],
     });
-  }, [settings, tokens, usedTokenSet]);
+    if (shouldRemap) {
+      await handleBulkRemap(newGroupName, oldGroupName);
+      dispatch.settings.setUpdateMode(shouldRemap.data[0] as UpdateMode);
+    }
+  }, [settings.updateMode, confirm, handleBulkRemap, dispatch.settings]);
+
+  // Asks user which styles to create, then calls Figma with all tokens to create styles
+  const createStylesFromTokens = useCallback(async () => {
+    const userDecision = await confirm({
+      text: 'Create styles',
+      description: 'What styles should be created?',
+      confirmAction: 'Create',
+      choices: [
+        { key: 'colorStyles', label: 'Color', enabled: true },
+        { key: 'textStyles', label: 'Text', enabled: true },
+        { key: 'effectStyles', label: 'Shadows', enabled: true },
+      ],
+    });
+
+    if (userDecision && Array.isArray(userDecision.data) && userDecision.data.length) {
+      track('createStyles', {
+        textStyles: userDecision.data.includes('textStyles'),
+        colorStyles: userDecision.data.includes('colorStyles'),
+        effectStyles: userDecision.data.includes('effectStyles'),
+      });
+
+      const enabledTokenSets = Object.entries(usedTokenSet)
+        .filter(([, status]) => status === TokenSetStatus.ENABLED)
+        .map(([tokenSet]) => tokenSet);
+      const resolved = resolveTokenValues(mergeTokenGroups(tokens, usedTokenSet));
+      const withoutIgnoredAndSourceTokens = resolved.filter((token) => (
+        !token.name.split('.').some((part) => part.startsWith('_')) // filter out ignored tokens
+          && (!token.internal__Parent || enabledTokenSets.includes(token.internal__Parent)) // filter out SOURCE tokens
+      ));
+
+      const tokensToCreate = withoutIgnoredAndSourceTokens.filter((token) => (
+        [
+          userDecision.data.includes('textStyles') && token.type === TokenTypes.TYPOGRAPHY,
+          userDecision.data.includes('colorStyles') && token.type === TokenTypes.COLOR,
+          userDecision.data.includes('effectStyles') && token.type === TokenTypes.BOX_SHADOW,
+        ].some((isEnabled) => isEnabled)
+      ));
+
+      const createStylesResult = await AsyncMessageChannel.ReactInstance.message({
+        type: AsyncMessageTypes.CREATE_STYLES,
+        tokens: tokensToCreate,
+        settings,
+      });
+      dispatch.tokenState.assignStyleIdsToCurrentTheme(createStylesResult.styleIds);
+    }
+  }, [confirm, usedTokenSet, tokens, settings, dispatch.tokenState]);
 
   return useMemo(() => ({
     isAlias,
@@ -167,8 +228,10 @@ export default function useTokens() {
     createStylesFromTokens,
     pullStyles,
     remapToken,
+    remapTokensInGroup,
     removeTokensByValue,
     handleRemap,
+    handleBulkRemap,
   }), [
     isAlias,
     getTokenValue,
@@ -177,7 +240,9 @@ export default function useTokens() {
     createStylesFromTokens,
     pullStyles,
     remapToken,
+    remapTokensInGroup,
     removeTokensByValue,
     handleRemap,
+    handleBulkRemap,
   ]);
 }

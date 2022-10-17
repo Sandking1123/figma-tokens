@@ -13,7 +13,7 @@ module.exports = {
     cy: 'readable',
     jest: 'readable',
   },
-  "rules": {
+  rules: {
     "import/prefer-default-export": 0,
     "import/extensions": 0,
     "no-await-in-loop": 0,
@@ -24,7 +24,24 @@ module.exports = {
     "react/function-component-definition": 0,
     "react/require-default-props": 0,
     "react/jsx-props-no-spreading": 0,
-    "react/jsx-no-bind": 2,
+    "no-prototype-builtins": 0,
+    "no-async-promise-executor": 0,
+    "no-restricted-syntax": ["error", "ForInStatement", "LabeledStatement", "WithStatement"],
+    "@typescript-eslint/ban-types": [2, {
+      "types": {
+        "object": {
+          "message": "The `Object` type actually means \"any non-nullish value\", so it is marginally better than `unknown`.\n- If you want a type meaning \"any object\", you probably want `Record<string, unknown>` instead.\n- If you want a type meaning \"any value\", you probably want `unknown` instead."
+        }
+      },
+      "extendDefaults": true
+    }],
+    "react/jsx-no-bind": [2, {
+      ignoreDOMComponents: false,
+      ignoreRefs: false,
+      allowArrowFunctions: false,
+      allowFunctions: false,
+      allowBind: false,
+    }],
     "@typescript-eslint/no-shadow": 1
   }
 };

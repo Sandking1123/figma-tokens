@@ -1,39 +1,30 @@
 /* eslint-disable import/prefer-default-export */
 import { createModel } from '@rematch/core';
-import { StorageType, StorageProviderType, ApiDataType } from '@/types/api';
 import { track } from '@/utils/analytics';
 import type { RootModel } from '@/types/RootModel';
 import fetchChangelog from '@/utils/storyblok';
 import { NodeTokenRefMap } from '@/types/NodeTokenRefMap';
-import { postToFigma } from '@/plugin/notifiers';
-import { MessageToPluginTypes } from '@/types/messages';
-import { SingleToken } from '@/types/tokens';
 import { SelectionGroup, StoryblokStory } from '@/types';
 import { Tabs } from '@/constants/Tabs';
-import { FeatureFlags } from '@/utils/featureFlags';
+import { AsyncMessageTypes } from '@/types/AsyncMessages';
+import { AsyncMessageChannel } from '@/AsyncMessageChannel';
+import { StorageProviderType } from '@/constants/StorageProviderType';
+import { StorageType, StorageTypeCredentials, StorageTypeFormValues } from '@/types/StorageType';
+import { EditTokenObject } from '@/types/tokens';
+import { TokenTypes } from '@/constants/TokenTypes';
+import { EditTokenFormStatus } from '@/constants/EditTokenFormStatus';
 
 type DisplayType = 'GRID' | 'LIST';
 
 type SelectionValue = NodeTokenRefMap;
 
-export type EditTokenObject = SingleToken<true, {
-  initialName: string;
-  path: string;
-  isPristine: boolean;
-  explainer?: string;
-  property: string;
-  // @TODO get rid of thse object types
-  schema?: object;
-  optionsSchema: object;
-  options: object;
-}>;
-
 export type ConfirmProps = {
   show?: boolean;
   text?: string;
-  description?: string;
+  description?: React.ReactNode;
   choices?: { key: string; label: string; enabled?: boolean, unique?: boolean }[];
   confirmAction?: string;
+  cancelAction?: string;
   input?: {
     type: 'text';
     placeholder: string;
@@ -68,13 +59,13 @@ export interface UIState {
   activeTab: Tabs;
   projectURL: string;
   storageType: StorageType;
-  api: ApiDataType;
-  apiProviders: ApiDataType[];
-  localApiState: ApiDataType;
-  lastUpdatedAt: Date | null;
+  api: StorageTypeCredentials;
+  apiProviders: StorageTypeCredentials[];
+  localApiState: StorageTypeFormValues<true>;
+  lastUpdatedAt: string | null;
   changelog: StoryblokStory['content'][];
   lastOpened: number | null;
-  editToken: EditTokenObject | null;
+  editToken: EditTokenObject;
   showEditForm: boolean;
   tokenFilter: string;
   confirmState: ConfirmProps;
@@ -82,7 +73,8 @@ export interface UIState {
   showEmptyGroups: boolean;
   collapsed: boolean;
   selectedLayers: number;
-  featureFlags: FeatureFlags
+  manageThemesModalOpen: boolean;
+  scrollPositionSet: Record<string, number>;
 }
 
 const defaultConfirmState: ConfirmProps = {
@@ -91,6 +83,7 @@ const defaultConfirmState: ConfirmProps = {
   description: '',
   choices: undefined,
   confirmAction: 'Yes',
+  cancelAction: 'Cancel',
   input: undefined,
 };
 
@@ -101,7 +94,7 @@ export const uiState = createModel<RootModel>()({
     disabled: false,
     displayType: 'GRID',
     backgroundJobs: [],
-    activeTab: Tabs.START,
+    activeTab: Tabs.LOADING,
     projectURL: '',
     storageType: {
       provider: StorageProviderType.LOCAL,
@@ -115,7 +108,10 @@ export const uiState = createModel<RootModel>()({
     lastUpdatedAt: null,
     changelog: [],
     lastOpened: '',
-    editToken: null,
+    editToken: {
+      type: TokenTypes.OTHER,
+      status: EditTokenFormStatus.CREATE,
+    },
     showEditForm: false,
     tokenFilter: '',
     tokenFilterVisible: false,
@@ -124,7 +120,8 @@ export const uiState = createModel<RootModel>()({
     showEmptyGroups: true,
     collapsed: false,
     selectedLayers: 0,
-    featureFlags: {},
+    manageThemesModalOpen: false,
+    scrollPositionSet: {},
   } as unknown as UIState,
   reducers: {
     setShowPushDialog: (state, data: string | false) => ({
@@ -135,9 +132,10 @@ export const uiState = createModel<RootModel>()({
       state,
       data: {
         text: string;
-        description?: string;
+        description?: React.ReactNode;
         choices: { key: string; label: string; enabled?: boolean; unique?: boolean }[];
         confirmAction?: string;
+        cancelAction?: string;
         input?: {
           type: 'text';
           placeholder: string;
@@ -151,6 +149,7 @@ export const uiState = createModel<RootModel>()({
         description: data.description,
         choices: data.choices,
         confirmAction: data.confirmAction || defaultConfirmState.confirmAction,
+        cancelAction: data.cancelAction || defaultConfirmState.cancelAction,
         input: data.input,
       },
     }),
@@ -232,19 +231,19 @@ export const uiState = createModel<RootModel>()({
         storageType: payload,
       };
     },
-    setApiData(state, payload: ApiDataType) {
+    setApiData(state, payload: StorageTypeCredentials) {
       return {
         ...state,
         api: payload,
       };
     },
-    setLocalApiState(state, payload: ApiDataType) {
+    setLocalApiState(state, payload: StorageTypeFormValues<true>) {
       return {
         ...state,
         localApiState: payload,
       };
     },
-    setAPIProviders(state, payload: ApiDataType[]) {
+    setAPIProviders(state, payload: StorageTypeCredentials[]) {
       return {
         ...state,
         apiProviders: payload,
@@ -278,12 +277,6 @@ export const uiState = createModel<RootModel>()({
       return {
         ...state,
         collapsed: !state.collapsed,
-      };
-    },
-    setFeatureFlags(state, payload: FeatureFlags) {
-      return {
-        ...state,
-        featureFlags: payload,
       };
     },
     addJobTasks(state, payload: AddJobTasksPayload) {
@@ -321,6 +314,18 @@ export const uiState = createModel<RootModel>()({
         }),
       };
     },
+    setManageThemesModalOpen(state, open: boolean) {
+      return {
+        ...state,
+        manageThemesModalOpen: open,
+      };
+    },
+    setScrollPositionSet(state, payload: Record<string, number>) {
+      return {
+        ...state,
+        scrollPositionSet: payload,
+      };
+    },
   },
   effects: (dispatch) => ({
     setLastOpened: (payload) => {
@@ -331,14 +336,14 @@ export const uiState = createModel<RootModel>()({
     setActiveTab: (payload: Tabs) => {
       const requiresSelectionValues = payload === Tabs.INSPECTOR;
 
-      postToFigma({
-        type: MessageToPluginTypes.CHANGED_TABS,
+      AsyncMessageChannel.ReactInstance.message({
+        type: AsyncMessageTypes.CHANGED_TABS,
         requiresSelectionValues,
       });
     },
     toggleShowEmptyGroups(payload: null | boolean, rootState) {
-      postToFigma({
-        type: MessageToPluginTypes.SET_SHOW_EMPTY_GROUPS,
+      AsyncMessageChannel.ReactInstance.message({
+        type: AsyncMessageTypes.SET_SHOW_EMPTY_GROUPS,
         showEmptyGroups: payload == null ? rootState.uiState.showEmptyGroups : payload,
       });
     },

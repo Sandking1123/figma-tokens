@@ -1,4 +1,8 @@
+/* eslint "no-multi-assign": 0 */
+import { Direction } from '@/constants/Direction';
+import { StyleIdBackupKeys } from '@/constants/StyleIdBackupKeys';
 import { notifyUI } from '@/plugin/notifiers';
+import { SelectionValue } from '@/types';
 
 const DIST = 80;
 const BASE_SIZE = 12;
@@ -10,35 +14,43 @@ const TITLE_COLOR = { r: 1, g: 1, b: 1 };
 const PROP_COLOR = { r: 0.9, g: 0.9, b: 0.9 };
 const VALUE_COLOR = { r: 1, g: 0.839, b: 0.078 };
 
-function getParentSelection(sel, distance, direction, position = { x: 0, y: 0, width: 0 }) {
+function getParentSelection(sel: SceneNode, distance: number, direction: Direction, position = { x: 0, y: 0, width: 0 }): {
+  distance: number;
+  position: { x: number; y: number; width: number; }
+} {
   if (position.width === 0) position.width = sel.width - DIST; // save original width
 
-  if (sel.parent.type !== 'DOCUMENT') {
-    if (sel.parent.type !== 'PAGE') {
-      switch (direction) {
-        case 'top':
-        case 'bottom':
-          distance += sel.y;
-          break;
-        case 'right':
-          distance = sel.parent.width - sel.x - position.x - position.width;
-          break;
-        default:
-          distance += sel.x;
-          break;
+  if ('parent' in sel && sel.parent) {
+    if (sel.parent.type !== 'DOCUMENT') {
+      if (sel.parent.type !== 'PAGE') {
+        switch (direction) {
+          case Direction.TOP:
+          case Direction.BOTTOM:
+            distance += sel.y;
+            break;
+          case Direction.RIGHT:
+            distance = sel.parent.width - sel.x - position.x - position.width;
+            break;
+          default:
+            distance += sel.x;
+            break;
+        }
       }
+      position.x += sel.x;
+      position.y += sel.y;
+      return sel.parent.type !== 'PAGE'
+        ? getParentSelection(sel.parent, distance, direction, position)
+        : { distance, position };
     }
-    position.x += sel.x;
-    position.y += sel.y;
-    return getParentSelection(sel.parent, distance, direction, position);
   }
+
   return {
     distance,
     position,
   };
 }
 
-function calcPosition(selection, anno, direction) {
+function calcPosition(selection: SceneNode, anno: FrameNode, direction: Direction) {
   let x = 0;
   let y = 0;
 
@@ -46,15 +58,15 @@ function calcPosition(selection, anno, direction) {
   const { distance, position } = getParentSelection(selection, DIST, direction);
 
   switch (direction) {
-    case 'top':
+    case Direction.TOP:
       x = position.x + selection.width / 2 - anno.width / 2;
       y = position.y - Math.abs(distance) - anno.height;
       break;
-    case 'right':
+    case Direction.RIGHT:
       x = position.x + selection.width + Math.abs(distance);
       y = position.y + selection.height / 2 - anno.height / 2;
       break;
-    case 'bottom':
+    case Direction.BOTTOM:
       x = position.x + selection.width / 2 - anno.width / 2;
       y = position.y + selection.height + Math.abs(distance);
       break;
@@ -68,42 +80,47 @@ function calcPosition(selection, anno, direction) {
   return { x, y, distance };
 }
 
-function createProperties(anno, tokens) {
-  for (const [key, value] of Object.entries(tokens)) {
-    const prop = figma.createFrame();
-    prop.layoutMode = 'HORIZONTAL';
-    prop.counterAxisAlignItems = 'CENTER';
-    prop.itemSpacing = BASE_SIZE / 2;
-    prop.fills = [{ visible: false, type: 'SOLID', color: BG_COLOR }];
-    prop.primaryAxisSizingMode = 'AUTO';
-    prop.counterAxisSizingMode = 'AUTO';
+function createProperties(
+  anno: FrameNode,
+  tokens: SelectionValue & { annoTitle: string },
+) {
+  Object.entries(tokens)
+    .filter(([key]) => !StyleIdBackupKeys.includes(key))
+    .forEach(([key, value]) => {
+      const prop = figma.createFrame();
+      prop.layoutMode = 'HORIZONTAL';
+      prop.counterAxisAlignItems = 'CENTER';
+      prop.itemSpacing = BASE_SIZE / 2;
+      prop.fills = [{ visible: false, type: 'SOLID', color: BG_COLOR }];
+      prop.primaryAxisSizingMode = 'AUTO';
+      prop.counterAxisSizingMode = 'AUTO';
 
-    const propText = figma.createText();
-    const propValue = figma.createText();
-    propText.fontName = propValue.fontName = FONT_CODE;
-    propText.fontSize = propValue.fontSize = BASE_SIZE;
-    propValue.fills = [{ type: 'SOLID', color: VALUE_COLOR }];
+      const propText = figma.createText();
+      const propValue = figma.createText();
+      propText.fontName = propValue.fontName = FONT_CODE;
+      propText.fontSize = propValue.fontSize = BASE_SIZE;
+      propValue.fills = [{ type: 'SOLID', color: VALUE_COLOR }];
 
-    if (key === 'annoTitle') {
-      prop.name = 'annotation-title';
-      propText.fontName = FONT_TITLE;
-      propText.characters = value as string;
-      propText.fills = [{ type: 'SOLID', color: TITLE_COLOR }];
-      prop.appendChild(propText);
-    } else {
-      prop.name = 'annotation-prop';
-      propText.characters = `${key}:`;
-      propText.fills = [{ type: 'SOLID', color: PROP_COLOR }];
-      propValue.characters = value as string;
-      prop.appendChild(propText);
-      prop.appendChild(propValue);
-    }
+      if (key === 'annoTitle') {
+        prop.name = 'annotation-title';
+        propText.fontName = FONT_TITLE;
+        propText.characters = value as string;
+        propText.fills = [{ type: 'SOLID', color: TITLE_COLOR }];
+        prop.appendChild(propText);
+      } else {
+        prop.name = 'annotation-prop';
+        propText.characters = `${key}:`;
+        propText.fills = [{ type: 'SOLID', color: PROP_COLOR }];
+        propValue.characters = value as string;
+        prop.appendChild(propText);
+        prop.appendChild(propValue);
+      }
 
-    anno.appendChild(prop);
-  }
+      anno.appendChild(prop);
+    });
 }
 
-function createAnno(tokens, direction) {
+function createAnno(tokens: SelectionValue, direction: Direction) {
   const selection = figma.currentPage.selection[0];
 
   /* Create the alignment container */
@@ -191,8 +208,7 @@ function createAnno(tokens, direction) {
   figma.currentPage.appendChild(cont);
 }
 
-// update credentials
-export async function createAnnotation(tokens, direction) {
+export async function createAnnotation(tokens: SelectionValue, direction: Direction) {
   const loadFonts = async () => {
     await figma.loadFontAsync(FONT_CODE);
     await figma.loadFontAsync(FONT_TITLE);

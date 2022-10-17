@@ -1,14 +1,17 @@
 /* eslint-disable import/prefer-default-export */
 import { createModel } from '@rematch/core';
-import { postToFigma } from '@/plugin/notifiers';
 import { track } from '@/utils/analytics';
-import { MessageToPluginTypes } from '@/types/messages';
-import { UpdateMode } from '@/types/state';
 import { RootModel } from '@/types/RootModel';
+import { UpdateMode } from '@/constants/UpdateMode';
+import { AsyncMessageTypes } from '@/types/AsyncMessages';
+import { AsyncMessageChannel } from '@/AsyncMessageChannel';
+import * as settingsStateReducers from './reducers/settingsState';
+import * as settingsStateEffects from './effects/settingsState';
 
 type WindowSettingsType = {
   width: number;
   height: number;
+  isMinimized: boolean;
 };
 
 type TokenModeType = 'object' | 'array';
@@ -21,12 +24,13 @@ export interface SettingsState {
   updateStyles?: boolean;
   tokenType?: TokenModeType;
   ignoreFirstPartForStyles?: boolean;
+  prefixStylesWithThemeName?: boolean;
   inspectDeep: boolean;
 }
 
 const setUI = (state: SettingsState) => {
-  postToFigma({
-    type: MessageToPluginTypes.SET_UI,
+  AsyncMessageChannel.ReactInstance.message({
+    type: AsyncMessageTypes.SET_UI,
     ...state,
   });
 };
@@ -36,6 +40,7 @@ export const settings = createModel<RootModel>()({
     uiWindow: {
       width: 400,
       height: 600,
+      isMinimized: false,
     },
     updateMode: UpdateMode.PAGE,
     updateRemote: true,
@@ -43,9 +48,11 @@ export const settings = createModel<RootModel>()({
     updateStyles: true,
     tokenType: 'object',
     ignoreFirstPartForStyles: false,
+    prefixStylesWithThemeName: false,
     inspectDeep: false,
   } as SettingsState,
   reducers: {
+    ...settingsStateReducers,
     setInspectDeep(state, payload: boolean) {
       return {
         ...state,
@@ -57,8 +64,20 @@ export const settings = createModel<RootModel>()({
       return {
         ...state,
         uiWindow: {
+          isMinimized: state.uiWindow?.isMinimized ?? false,
           width: payload.width,
           height: payload.height,
+        },
+      };
+    },
+    setMinimizePluginWindow(state, payload: { isMinimized: boolean; width: number; height: number }) {
+      track('Minimized plugin');
+      return {
+        ...state,
+        uiWindow: {
+          width: payload.width,
+          height: payload.height,
+          isMinimized: payload.isMinimized,
         },
       };
     },
@@ -114,10 +133,17 @@ export const settings = createModel<RootModel>()({
   },
   effects: () => ({
     setWindowSize: (payload) => {
-      postToFigma({
-        type: MessageToPluginTypes.RESIZE_WINDOW,
+      AsyncMessageChannel.ReactInstance.message({
+        type: AsyncMessageTypes.RESIZE_WINDOW,
         width: payload.width,
         height: payload.height,
+      });
+    },
+    setMinimizePluginWindow: (payload) => {
+      AsyncMessageChannel.ReactInstance.message({
+        type: AsyncMessageTypes.RESIZE_WINDOW,
+        width: payload.isMinimized ? 50 : payload.width,
+        height: payload.isMinimized ? 50 : payload.height,
       });
     },
     setUpdateStyles: (payload, rootState) => {
@@ -138,5 +164,13 @@ export const settings = createModel<RootModel>()({
     setInspectDeep: (payload, rootState) => {
       setUI(rootState.settings);
     },
+    setUISettings: (payload, rootState) => {
+      setUI(rootState.settings);
+    },
+    ...Object.fromEntries(
+      (Object.entries(settingsStateEffects).map(([key, factory]) => (
+        [key, factory()]
+      ))),
+    ),
   }),
 });

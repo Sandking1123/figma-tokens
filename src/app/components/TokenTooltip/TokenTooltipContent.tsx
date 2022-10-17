@@ -1,8 +1,10 @@
 import React from 'react';
 import { SingleToken } from '@/types/tokens';
-import useTokens from '@/app/store/useTokens';
-import { TokensContext } from '@/context';
 import { TokenTooltipContentValue } from './TokenTooltipContentValue';
+import Box from '../Box';
+import Stack from '../Stack';
+import { TokensContext } from '@/context';
+import NotFoundBadge from './NotFoundBadge';
 
 type Props = {
   token: SingleToken;
@@ -10,23 +12,33 @@ type Props = {
 
 export const TokenTooltipContent: React.FC<Props> = ({ token }) => {
   const tokensContext = React.useContext(TokensContext);
-  const { isAlias } = useTokens();
-  const tokenIsAlias = React.useMemo(() => (
-    isAlias(token, tokensContext.resolvedTokens)
-  ), [token, isAlias, tokensContext.resolvedTokens]);
+
+  const failedToResolve = React.useMemo(() => (
+    tokensContext.resolvedTokens.find((t) => t.name === token.name)?.failedToResolve
+  ), [token, tokensContext.resolvedTokens]);
 
   return (
-    <div>
-      <div className="text-xs font-bold text-gray-500">
+    <Stack direction="column" gap={1} css={{ background: '$bgToolTip' }}>
+      <Stack
+        direction="row"
+        justify="start"
+        align="center"
+        gap={2}
+        css={{
+          fontSize: '$0',
+          fontWeight: '$bold',
+          color: '$fgToolTip',
+          position: 'relative',
+        }}
+      >
         {token.name.split('.')[token.name.split('.').length - 1]}
-      </div>
-      <TokenTooltipContentValue token={token} />
-      {tokenIsAlias && (
-        <div className="text-gray-400">
-          <TokenTooltipContentValue token={token} shouldResolve />
-        </div>
-      )}
-      {token.description && <div className="text-gray-500">{token.description}</div>}
-    </div>
+        {failedToResolve ? <NotFoundBadge /> : null}
+      </Stack>
+
+      <Stack direction="column" align="start" gap={2} wrap>
+        <TokenTooltipContentValue token={token} />
+      </Stack>
+      {token.description && <Box css={{ color: '$fgToolTipMuted', padding: '$1 $2' }}>{token.description}</Box>}
+    </Stack>
   );
 };

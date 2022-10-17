@@ -1,6 +1,5 @@
 import React from 'react';
 import { useSelector } from 'react-redux';
-import isEqual from 'lodash.isequal';
 import Box from './Box';
 import Blankslate from './Blankslate';
 import AnnotationBuilder from './AnnotationBuilder';
@@ -8,6 +7,10 @@ import { SingleToken } from '@/types/tokens';
 import useTokens from '../store/useTokens';
 import { uiStateSelector } from '@/selectors';
 import Stack from './Stack';
+import { isEqual } from '@/utils/isEqual';
+import { StyledInspectBadge } from './StyledInspectBadge';
+import Text from './Text';
+import { StyleIdBackupKeys } from '@/constants/StyleIdBackupKeys';
 
 export default function InspectorDebugView({ resolvedTokens }: { resolvedTokens: SingleToken[] }) {
   const uiState = useSelector(uiStateSelector, isEqual);
@@ -20,30 +23,29 @@ export default function InspectorDebugView({ resolvedTokens }: { resolvedTokens:
 
   return (
     <Box
-      css={{ flexGrow: 1, padding: '$4' }}
+      css={{
+        display: 'flex', flexDirection: 'column', flexGrow: 1, padding: '$4',
+      }}
       className="content scroll-container"
     >
-      <Stack direction="column">
-        <Box css={{ borderBottom: '1px solid $border', paddingBottom: '$4', marginBottom: '$4' }}>
-          <AnnotationBuilder />
-        </Box>
+      <Stack direction="column" css={{ flexGrow: 1 }}>
+        <AnnotationBuilder />
 
         {uiState.selectedLayers === 1 && Object.entries(uiState.mainNodeSelectionValues).length > 0
           ? (
             <Stack direction="column" gap={1}>
               {Object.entries(uiState.mainNodeSelectionValues)
-                .filter(([, value]) => value !== 'delete')
+                .filter(([key, value]) => !StyleIdBackupKeys.includes(key) && value !== 'delete')
                 .map(([property, value]) => (
                   <Stack key={property} direction="row" align="start" justify="between">
                     <code className="flex flex-wrap space-x-2">
                       <div className="font-bold">{property}</div>
                       :
                       {' '}
-                      <div className="p-1 text-white bg-gray-700 rounded text-xxs">
-                        $
+                      <StyledInspectBadge>
                         {typeof value === 'string' && value.split('.').join('-')}
-                      </div>
-                      <div className="text-gray-500 break-all">{`/* ${JSON.stringify(getTokenValue(value, resolvedTokens))} */`}</div>
+                      </StyledInspectBadge>
+                      <Text size="xsmall" muted css={{ wordBreak: 'break-all' }}>{`/* ${JSON.stringify(getTokenValue(value, resolvedTokens))} */`}</Text>
                     </code>
                   </Stack>
                 ))}

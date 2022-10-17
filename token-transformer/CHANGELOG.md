@@ -1,3 +1,33 @@
+## v0.0.27 (2022-09-15)
+
+Added support to read $themes.json or $themes key by using --theme=true - this allows you to generate token files easily by providing a $themes key instead of manually running token-transformer multiple times. Thanks forceofseth!
+
+## v0.0.26 (2022-09-08)
+
+Fixes a crash when other file types than .json are present in the source folder. Thanks thomasmattheussen!
+
+## v0.0.25 (2022-08-13)
+
+Adds support for expanding composition tokens
+
+## v0.0.24 (2022-06-27)
+
+Adds support for shadow tokens that reference other shadow tokens
+Adds support for typography tokens that reference other typography tokens
+Adds support for composition tokens
+
+## v0.0.23 (2022-05-24)
+
+Shadow and typography tokens now respect the resolveReferences option (thanks @jakobe)
+
+## v0.0.22 (2022-05-06)
+
+Fixed a bug that got introduced in 0.0.21 affecting multiple sets
+## v0.0.21 (2022-04-29)
+
+Added throwErrorWhenNotResolved (thanks @borbit)
+Added resolveReferences option (thanks @jakobe)
+
 ## v0.0.20 (2022-04-02)
 
 Added expandShadow option (thanks @iShavgula-TacTill)

@@ -1,6 +1,7 @@
 import { init, RematchStore } from '@rematch/core';
 import { RootModel } from '@/types/RootModel';
 import { models } from './index';
+import { TokenSetStatus } from '@/constants/TokenSetStatus';
 
 type Store = RematchStore<RootModel, Record<string, never>>;
 
@@ -16,7 +17,13 @@ describe('toggleUsedTokenSet', () => {
               b: [],
               c: [],
             },
-            usedTokenSet: ['a'],
+            themes: [],
+            activeTheme: null,
+            usedTokenSet: {
+              a: TokenSetStatus.ENABLED,
+              b: TokenSetStatus.DISABLED,
+              c: TokenSetStatus.DISABLED,
+            },
           },
         },
       },
@@ -28,15 +35,27 @@ describe('toggleUsedTokenSet', () => {
     await store.dispatch.tokenState.toggleUsedTokenSet('b');
 
     const { usedTokenSet } = store.getState().tokenState;
-    expect(usedTokenSet).toEqual(['a', 'b']);
+    expect(usedTokenSet).toEqual({
+      a: TokenSetStatus.ENABLED,
+      b: TokenSetStatus.ENABLED,
+      c: TokenSetStatus.DISABLED,
+    });
   });
 
   it('removes token set if already true', async () => {
     await store.dispatch.tokenState.toggleUsedTokenSet('b');
 
-    expect(store.getState().tokenState.usedTokenSet).toEqual(['a', 'b']);
+    expect(store.getState().tokenState.usedTokenSet).toEqual({
+      a: TokenSetStatus.ENABLED,
+      b: TokenSetStatus.ENABLED,
+      c: TokenSetStatus.DISABLED,
+    });
     await store.dispatch.tokenState.toggleUsedTokenSet('a');
-    expect(store.getState().tokenState.usedTokenSet).toEqual(['b']);
+    expect(store.getState().tokenState.usedTokenSet).toEqual({
+      a: TokenSetStatus.DISABLED,
+      b: TokenSetStatus.ENABLED,
+      c: TokenSetStatus.DISABLED,
+    });
   });
 });
 
@@ -52,7 +71,10 @@ describe('setActiveTokenSet', () => {
               b: [],
               c: [],
             },
+            themes: [],
+            activeTheme: null,
             activeTokenSet: 'c',
+            themes: [],
           },
         },
       },
@@ -80,7 +102,15 @@ describe('deleteTokenSet', () => {
               b: [],
               c: [],
             },
+            themes: [],
+            activeTheme: null,
+            usedTokenSet: {
+              a: TokenSetStatus.DISABLED,
+              b: TokenSetStatus.DISABLED,
+              c: TokenSetStatus.DISABLED,
+            },
             activeTokenSet: 'c',
+            themes: [],
           },
         },
       },
@@ -122,8 +152,13 @@ describe('renameTokenSet', () => {
               b: [],
               c: [],
             },
+            themes: [],
+            activeTheme: null,
             activeTokenSet: 'a',
-            usedTokenSet: ['a'],
+            usedTokenSet: {
+              a: TokenSetStatus.ENABLED,
+            },
+            themes: [],
           },
         },
       },
@@ -167,6 +202,12 @@ describe('addTokenSet', () => {
             tokens: {
               global: 1,
             },
+            themes: [],
+            activeTheme: null,
+            usedTokenSet: {
+              global: TokenSetStatus.DISABLED,
+            },
+            themes: [],
           },
         },
       },
@@ -205,6 +246,14 @@ describe('setTokenSetOrder', () => {
               b: 2,
               c: 3,
             },
+            themes: [],
+            activeTheme: null,
+            usedTokenSet: {
+              a: TokenSetStatus.DISABLED,
+              b: TokenSetStatus.DISABLED,
+              c: TokenSetStatus.DISABLED,
+            },
+            themes: [],
           },
         },
       },

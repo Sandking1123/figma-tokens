@@ -7,7 +7,7 @@ export function track(name: string, opts = {}) {
   }
 }
 
-export function identify({ userId, figmaId, name }: { userId: string; figmaId?: string; name?: string }) {
+export function identify({ userId, figmaId, name }: { userId: string; figmaId?: string | null; name?: string }) {
   if (process.env.MIXPANEL_ACCESS_TOKEN) {
     mixpanel.identify(userId);
 
@@ -17,6 +17,12 @@ export function identify({ userId, figmaId, name }: { userId: string; figmaId?: 
       NAME: name,
       version: pjs.plugin_version,
     });
+  }
+}
+
+export function setUserData(data: { [key: string]: string }) {
+  if (process.env.MIXPANEL_ACCESS_TOKEN && 'people' in mixpanel) {
+    mixpanel.people.set(data);
   }
 }
 

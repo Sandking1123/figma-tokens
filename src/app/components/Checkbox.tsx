@@ -1,5 +1,5 @@
 import * as CheckboxPrimitive from '@radix-ui/react-checkbox';
-import React from 'react';
+import React, { useMemo } from 'react';
 import { styled } from '@/stitches.config';
 import IconCheck from '@/icons/check.svg';
 import IconIndeterminate from '@/icons/indeterminate.svg';
@@ -19,7 +19,6 @@ const StyledCheckbox = styled(CheckboxPrimitive.Root, {
   width: 12,
   height: 12,
   '&:focus': { boxShadow: '0 0 0 2px black' },
-
   variants: {
     isChecked: {
       true: {
@@ -31,35 +30,53 @@ const StyledCheckbox = styled(CheckboxPrimitive.Root, {
         borderColor: '$interactionSubtle',
       },
     },
-
   },
 });
+
+type CheckboxProps = {
+  checked: boolean | 'indeterminate';
+  id: string | null;
+  defaultChecked?: boolean;
+  disabled?: boolean;
+  onCheckedChange: (checked: CheckboxPrimitive.CheckedState) => void;
+  renderIcon?: (checked: boolean | 'indeterminate', fallback: React.ReactNode) => React.ReactNode;
+};
+
+type Props = Omit<React.HTMLAttributes<HTMLButtonElement>, keyof CheckboxProps> & CheckboxProps;
 
 function Checkbox({
   checked,
   id = null,
-  onCheckedChange,
   defaultChecked = false,
   disabled = false,
-}: {
-  checked: boolean | 'indeterminate';
-  id: string;
-  onCheckedChange: any;
-  defaultChecked?: boolean;
-  disabled?: boolean;
-}) {
+  onCheckedChange,
+  renderIcon,
+  ...props
+}: Props) {
+  const icon = useMemo(() => {
+    let fallbackIcon: React.ReactNode = null;
+    if (checked === 'indeterminate') {
+      fallbackIcon = <IconIndeterminate />;
+    } else if (checked === true) {
+      fallbackIcon = <IconCheck />;
+    }
+    if (renderIcon) return renderIcon(checked, fallbackIcon);
+    return fallbackIcon;
+  }, [checked, renderIcon]);
+
   return (
     <StyledCheckbox
-      id={id}
+      id={id ?? undefined}
+      data-testid={id ?? undefined}
       disabled={disabled}
-      isChecked={checked}
+      isChecked={!!checked}
       checked={checked}
       onCheckedChange={onCheckedChange}
       defaultChecked={defaultChecked}
+      {...props}
     >
       <StyledIndicator>
-        {checked === 'indeterminate' && <IconIndeterminate />}
-        {checked === true && <IconCheck />}
+        {icon}
       </StyledIndicator>
     </StyledCheckbox>
   );

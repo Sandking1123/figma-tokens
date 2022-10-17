@@ -1,31 +1,29 @@
-import React from 'react';
+import { useEffect } from 'react';
 import { useDispatch } from 'react-redux';
-import { identify, track } from '@/utils/analytics';
-import { MessageFromPluginTypes, MessageToPluginTypes, PostToUIMessage } from '@/types/messages';
-import { postToFigma } from '../../plugin/notifiers';
+import { MessageFromPluginTypes, PostToUIMessage } from '@/types/messages';
 import useRemoteTokens from '../store/remoteTokens';
 import { Dispatch } from '../store';
 import useStorage from '../store/useStorage';
-import * as pjs from '../../../package.json';
-import { useFeatureFlags } from '../hooks/useFeatureFlags';
+import { sortSelectionValueByProperties } from '@/utils/sortSelectionValueByProperties';
+import { convertToOrderObj } from '@/utils/convertToOrderObj';
+import { Properties } from '@/constants/Properties';
+import { Tabs } from '@/constants/Tabs';
+import { hasTokenValues } from '@/utils/hasTokenValues';
+import { track } from '@/utils/analytics';
+
+// @README this component is not the "Initiator" anymore - as it is named
+// but solely acts as the interface between the plugin and the UI
 
 export function Initiator() {
   const dispatch = useDispatch<Dispatch>();
-
-  const { pullTokens } = useRemoteTokens();
-  const { fetchFeatureFlags } = useFeatureFlags();
+  const { pullTokens, fetchBranches } = useRemoteTokens();
   const { setStorageType } = useStorage();
 
-  const onInitiate = () => {
-    postToFigma({ type: MessageToPluginTypes.INITIATE });
-  };
-
-  React.useEffect(() => {
-    onInitiate();
+  useEffect(() => {
     window.onmessage = async (event: {
       data: {
-        pluginMessage: PostToUIMessage
-      }
+        pluginMessage: PostToUIMessage;
+      };
     }) => {
       if (event.data.pluginMessage) {
         const { pluginMessage } = event.data;
@@ -35,10 +33,15 @@ export function Initiator() {
             dispatch.uiState.setSelectedLayers(selectedNodes);
             dispatch.uiState.setDisabled(false);
             if (mainNodeSelectionValues.length > 1) {
-              dispatch.uiState.setMainNodeSelectionValues({});
+              const allMainNodeSelectionValues = mainNodeSelectionValues.reduce((acc, crr) => (
+                Object.assign(acc, crr)
+              ), {});
+              const sortedMainNodeSelectionValues = sortSelectionValueByProperties(allMainNodeSelectionValues);
+              dispatch.uiState.setMainNodeSelectionValues(sortedMainNodeSelectionValues);
             } else if (mainNodeSelectionValues.length > 0) {
               // When only one node is selected, we can set the state
-              dispatch.uiState.setMainNodeSelectionValues(mainNodeSelectionValues[0]);
+              const sortedMainNodeSelectionValues = sortSelectionValueByProperties(mainNodeSelectionValues[0]);
+              dispatch.uiState.setMainNodeSelectionValues(sortedMainNodeSelectionValues);
             } else {
               // When only one is selected and it doesn't contain any tokens, reset.
               dispatch.uiState.setMainNodeSelectionValues({});
@@ -46,7 +49,9 @@ export function Initiator() {
 
             // Selection values are all tokens across all layers, used in Multi Inspector.
             if (selectionValues) {
-              dispatch.uiState.setSelectionValues(selectionValues);
+              const orderObj = convertToOrderObj(Properties);
+              const sortedSelectionValues = selectionValues.sort((a, b) => orderObj[a.type] - orderObj[b.type]);
+              dispatch.uiState.setSelectionValues(sortedSelectionValues);
             } else {
               dispatch.uiState.resetSelectionValues();
             }
@@ -59,48 +64,13 @@ export function Initiator() {
             dispatch.uiState.setMainNodeSelectionValues({});
             break;
           }
-          case MessageFromPluginTypes.REMOTE_COMPONENTS:
-            break;
-          case MessageFromPluginTypes.TOKEN_VALUES: {
+          case MessageFromPluginTypes.SET_TOKENS: {
             const { values } = pluginMessage;
             if (values) {
               dispatch.tokenState.setTokenData(values);
-              dispatch.uiState.setActiveTab('tokens');
-            }
-            break;
-          }
-          case MessageFromPluginTypes.STYLES: {
-            const { values } = pluginMessage;
-            if (values) {
-              track('Import styles');
-              dispatch.tokenState.setTokensFromStyles(values);
-              dispatch.uiState.setActiveTab('tokens');
-            }
-            break;
-          }
-          case MessageFromPluginTypes.RECEIVED_STORAGE_TYPE:
-            setStorageType({ provider: pluginMessage.storageType });
-            break;
-          case MessageFromPluginTypes.API_CREDENTIALS: {
-            const { status, credentials, featureFlagId } = pluginMessage;
-            if (status === true) {
-              let receivedFlags;
-
-              if (featureFlagId) {
-                receivedFlags = await fetchFeatureFlags(featureFlagId);
-                if (receivedFlags) {
-                  dispatch.uiState.setFeatureFlags(receivedFlags);
-                }
-              }
-
-              track('Fetched from remote', { provider: credentials.provider });
-              if (!credentials.internalId) track('missingInternalId', { provider: credentials.provider });
-
-              dispatch.uiState.setApiData(credentials);
-              dispatch.uiState.setLocalApiState(credentials);
-
-              await pullTokens(credentials, receivedFlags);
-              dispatch.uiState.setActiveTab('tokens');
+              const existTokens = hasTokenValues(values?.values ?? {});
+              if (existTokens) dispatch.uiState.setActiveTab(Tabs.TOKENS);
+              else dispatch.uiState.setActiveTab(Tabs.START);
             }
             break;
           }
@@ -113,17 +83,17 @@ export function Initiator() {
             dispatch.settings.triggerWindowChange();
             break;
           }
+          case MessageFromPluginTypes.STYLES: {
+            const { values } = pluginMessage;
+            if (values) {
+              track('Import styles');
+              dispatch.tokenState.setTokensFromStyles(values);
+              dispatch.uiState.setActiveTab(Tabs.TOKENS);
+            }
+            break;
+          }
           case MessageFromPluginTypes.SHOW_EMPTY_GROUPS: {
             dispatch.uiState.toggleShowEmptyGroups(pluginMessage.showEmptyGroups);
-            break;
-          }
-          case MessageFromPluginTypes.USER_ID: {
-            identify(pluginMessage.user);
-            track('Launched', { version: pjs.plugin_version });
-            break;
-          }
-          case MessageFromPluginTypes.RECEIVED_LAST_OPENED: {
-            dispatch.uiState.setLastOpened(pluginMessage.lastOpened);
             break;
           }
           case MessageFromPluginTypes.START_JOB: {
@@ -159,7 +129,7 @@ export function Initiator() {
         }
       }
     };
-  }, []);
+  }, [dispatch, pullTokens, fetchBranches, setStorageType]);
 
   return null;
 }

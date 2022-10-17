@@ -1,9 +1,10 @@
+import { Properties } from '@/constants/Properties';
 import { TokenTypes } from '@/constants/TokenTypes';
-import { SelectionValue } from './SelectionValue';
+import { NodeInfo } from './NodeInfo';
 
 export interface SelectionGroup {
-  category: TokenTypes;
-  type: SelectionValue;
+  category: TokenTypes | Properties;
+  type: string;
   value: string;
-  nodes: string[];
+  nodes: NodeInfo[];
 }

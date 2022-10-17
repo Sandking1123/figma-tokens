@@ -6,7 +6,7 @@ import { Dispatch } from '../store';
 import { ConfirmProps } from '../store/models/uiState';
 import { confirmStateSelector } from '@/selectors';
 
-type ResolveCallbackPayload<C = any> = false | {
+export type ResolveCallbackPayload<C = any> = false | {
   result: true;
   data: C;
 };
@@ -22,6 +22,7 @@ function useConfirm<C = any>() {
       text,
       description,
       confirmAction,
+      cancelAction,
       choices,
       input,
     } = opts;
@@ -30,6 +31,7 @@ function useConfirm<C = any>() {
       input,
       description,
       confirmAction,
+      cancelAction,
       text: text ?? '',
       choices: choices ?? [],
     });

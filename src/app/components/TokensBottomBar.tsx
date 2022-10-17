@@ -1,12 +1,13 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { useSelector } from 'react-redux';
 import ApplySelector from './ApplySelector';
 import ExportModal from './modals/ExportModal';
 import PresetModal from './modals/PresetModal';
 import Box from './Box';
-import ActionButton from './ActionButton';
 import StylesDropdown from './StylesDropdown';
 import { editProhibitedSelector, hasUnsavedChangesSelector } from '@/selectors';
+import Button from './Button';
+import { useShortcut } from '@/hooks/useShortcut';
 
 type Props = {
   handleUpdate: () => void;
@@ -20,6 +21,30 @@ export default function TokensBottomBar({ handleUpdate, handleSaveJSON, hasJSONE
 
   const [exportModalVisible, showExportModal] = React.useState(false);
   const [presetModalVisible, showPresetModal] = React.useState(false);
+
+  const handleSaveShortcut = useCallback((event: KeyboardEvent) => {
+    if (event.metaKey || event.ctrlKey) {
+      handleSaveJSON();
+    }
+  }, [handleSaveJSON]);
+
+  useShortcut(['KeyS'], handleSaveShortcut);
+
+  const handleShowPresetModal = useCallback(() => {
+    showPresetModal(true);
+  }, []);
+
+  const handleClosePresetModal = useCallback(() => {
+    showPresetModal(false);
+  }, []);
+
+  const handleShowExportModal = useCallback(() => {
+    showExportModal(true);
+  }, []);
+
+  const handleCloseExportModal = useCallback(() => {
+    showExportModal(false);
+  }, []);
 
   return (
     <Box css={{
@@ -38,7 +63,9 @@ export default function TokensBottomBar({ handleUpdate, handleSaveJSON, hasJSONE
           }}
         >
           <Box css={{ fontSize: '$xsmall' }}>Unsaved changes</Box>
-          <ActionButton variant="primary" disabled={hasJSONError} onClick={() => handleSaveJSON()} text="Save JSON" />
+          <Button variant="primary" disabled={hasJSONError} onClick={handleSaveJSON}>
+            Save JSON
+          </Button>
         </Box>
       )
         : (
@@ -48,16 +75,21 @@ export default function TokensBottomBar({ handleUpdate, handleSaveJSON, hasJSONE
           >
             <ApplySelector />
             <Box css={{ display: 'flex', flexDirection: 'row', gap: '$2' }}>
-              <ActionButton text="Load" disabled={editProhibited} onClick={() => showPresetModal(true)} />
-              <ActionButton text="Export" onClick={() => showExportModal(true)} />
+              <Button variant="ghost" disabled={editProhibited} onClick={handleShowPresetModal}>
+                Load
+              </Button>
+              <Button variant="ghost" onClick={handleShowExportModal}>
+                Export
+              </Button>
               <StylesDropdown />
-              <ActionButton text="Update" variant="primary" onClick={handleUpdate} />
+              <Button variant="primary" onClick={handleUpdate}>
+                Update
+              </Button>
             </Box>
           </Box>
         )}
-      {exportModalVisible && <ExportModal onClose={() => showExportModal(false)} />}
-      {presetModalVisible && <PresetModal onClose={() => showPresetModal(false)} />}
-
+      {exportModalVisible && <ExportModal onClose={handleCloseExportModal} />}
+      {presetModalVisible && <PresetModal onClose={handleClosePresetModal} />}
     </Box>
   );
 }

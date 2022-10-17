@@ -1,206 +1,224 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { Dispatch, RootState } from '@/app/store';
-import { ContextObject, StorageProviderType } from '@/types/api';
-import { MessageToPluginTypes } from '@/types/messages';
-import { TokenStore, TokenValues } from '@/types/tokens';
-import convertTokensToObject from '@/utils/convertTokensToObject';
-import { notifyToUI, postToFigma } from '../../../plugin/notifiers';
+import { useCallback, useMemo } from 'react';
+import { Dispatch } from '@/app/store';
+import { notifyToUI } from '../../../plugin/notifiers';
 import * as pjs from '../../../../package.json';
 import useStorage from '../useStorage';
 import { compareUpdatedAt } from '@/utils/date';
-import { tokensSelector } from '@/selectors';
-
-async function readTokensFromJSONBin({ secret, id }): Promise<TokenValues | null> {
-  const response = await fetch(`https://api.jsonbin.io/v3/b/${id}/latest`, {
-    method: 'GET',
-    mode: 'cors',
-    cache: 'no-cache',
-    credentials: 'same-origin',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Master-Key': secret,
-      'X-Bin-Meta': false,
-    },
-  });
-
-  if (response.ok) {
-    return response.json();
-  }
-  notifyToUI('There was an error connecting, check your sync settings', { error: true });
-  return null;
-}
-
-async function writeTokensToJSONBin({ secret, id, tokenObj }): Promise<TokenValues | null> {
-  const response = await fetch(`https://api.jsonbin.io/v3/b/${id}`, {
-    method: 'PUT',
-    mode: 'cors',
-    cache: 'no-cache',
-    credentials: 'same-origin',
-    body: tokenObj,
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Master-Key': secret,
-    },
-  });
-
-  if (response.ok) {
-    const res = await response.json();
-    notifyToUI('Updated Remote');
-    return res;
-  }
-  notifyToUI('Error updating remote', { error: true });
-  return null;
-}
+import {
+  activeThemeSelector, themesListSelector, tokensSelector, usedTokenSetSelector,
+} from '@/selectors';
+import { UpdateRemoteFunctionPayload } from '@/types/UpdateRemoteFunction';
+import { JSONBinTokenStorage } from '@/storage';
+import { AsyncMessageTypes } from '@/types/AsyncMessages';
+import { AsyncMessageChannel } from '@/AsyncMessageChannel';
+import { StorageProviderType } from '@/constants/StorageProviderType';
+import { StorageTypeCredentials, StorageTypeFormValues } from '@/types/StorageType';
+import { RemoteResponseData } from '@/types/RemoteResponseData';
+import { ErrorMessages } from '@/constants/ErrorMessages';
+import { saveLastSyncedState } from '@/utils/saveLastSyncedState';
+import { applyTokenSetOrder } from '@/utils/tokenset';
 
 export async function updateJSONBinTokens({
-  tokens, context, updatedAt, oldUpdatedAt = null,
-}) {
+  tokens, themes, context, updatedAt, oldUpdatedAt = null,
+}: UpdateRemoteFunctionPayload) {
   const { id, secret } = context;
   try {
-    const tokenObj = JSON.stringify(
-      {
+    if (!id || !secret) throw new Error('Missing JSONBin ID or secret');
+
+    const storage = new JSONBinTokenStorage(id, secret);
+
+    const payload = {
+      tokens,
+      themes,
+      metadata: {
+        tokenSetOrder: Object.keys(tokens),
+        updatedAt: updatedAt ?? new Date().toISOString(),
         version: pjs.plugin_version,
-        updatedAt,
-        values: convertTokensToObject(tokens),
       },
-      null,
-      2,
-    );
+    };
 
     if (oldUpdatedAt) {
-      const remoteTokens = await readTokensFromJSONBin({ secret, id });
-      const comparison = await compareUpdatedAt(oldUpdatedAt, remoteTokens.updatedAt);
+      const remoteTokens = await storage.retrieve();
+      if (remoteTokens?.status === 'failure') {
+        console.log('Error updating jsonbin', remoteTokens?.errorMessage);
+        return {
+          status: 'failure',
+          errorMessage: remoteTokens?.errorMessage,
+        };
+      }
+
+      const comparison = await compareUpdatedAt(oldUpdatedAt, remoteTokens?.metadata?.updatedAt ?? '');
       if (comparison === 'remote_older') {
-        writeTokensToJSONBin({ secret, id, tokenObj });
+        if (await storage.save(payload)) {
+          return payload;
+        }
       } else {
         // Tell the user to choose between:
         // A) Pull Remote values and replace local changes
         // B) Overwrite Remote changes
         notifyToUI('Error updating tokens as remote is newer, please update first', { error: true });
       }
-    } else {
-      writeTokensToJSONBin({ secret, id, tokenObj });
+    } else if (await storage.save(payload)) {
+      return payload;
     }
   } catch (e) {
     console.log('Error updating jsonbin', e);
   }
+
+  return null;
 }
 
 export function useJSONbin() {
   const dispatch = useDispatch<Dispatch>();
   const { setStorageType } = useStorage();
   const tokens = useSelector(tokensSelector);
+  const themes = useSelector(themesListSelector);
+  const activeTheme = useSelector(activeThemeSelector);
+  const usedTokenSets = useSelector(usedTokenSetSelector);
 
-  async function createNewJSONBin(context: ContextObject): Promise<TokenValues> {
-    const { secret, name, updatedAt } = context;
-    const response = await fetch('https://api.jsonbin.io/v3/b', {
-      method: 'POST',
-      mode: 'cors',
-      cache: 'no-cache',
-      credentials: 'same-origin',
-      body: JSON.stringify({
-        version: pjs.plugin_version,
-        updatedAt,
-        values: {
-          options: {},
-        },
-      }),
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Master-Key': secret,
-        'X-Bin-Name': name,
-        versioning: 'false',
-      },
-    });
-    if (response.ok) {
-      const jsonBinData = await response.json();
-      dispatch.uiState.setApiData({
-        id: jsonBinData.metadata.id,
-        name,
-        secret,
-        provider: StorageProviderType.JSONBIN,
-      });
-      updateJSONBinTokens({
+  const createNewJSONBin = useCallback(async (context: Extract<StorageTypeFormValues<false>, { provider: StorageProviderType.JSONBIN }>) => {
+    const { secret, name, internalId } = context;
+    const updatedAt = new Date().toISOString();
+    const result = await JSONBinTokenStorage.create(name, updatedAt, secret);
+    if (result) {
+      await updateJSONBinTokens({
         tokens,
         context: {
-          id: jsonBinData.metadata.id,
+          id: result.metadata.id,
           secret,
         },
+        themes,
         updatedAt,
       });
-      postToFigma({
-        type: MessageToPluginTypes.CREDENTIALS,
-        id: jsonBinData.metadata.id,
-        name,
-        secret,
-        provider: StorageProviderType.JSONBIN,
+      AsyncMessageChannel.ReactInstance.message({
+        type: AsyncMessageTypes.CREDENTIALS,
+        credential: {
+          provider: StorageProviderType.JSONBIN,
+          id: result.metadata.id,
+          internalId,
+          name,
+          secret,
+        },
       });
-      dispatch.uiState.setProjectURL(`https://jsonbin.io/${jsonBinData.metadata.id}`);
+      dispatch.uiState.setProjectURL(`https://jsonbin.io/${result.metadata.id}`);
 
-      return jsonBinData.metadata.id;
+      return result.metadata.id;
     }
     notifyToUI('Something went wrong. See console for details', { error: true });
     return null;
-  }
+  }, [dispatch, themes, tokens]);
 
   // Read tokens from JSONBin
-
-  async function pullTokensFromJSONBin(context: ContextObject): Promise<TokenStore | null> {
-    const { id, secret, name } = context;
-
-    if (!id && !secret) return null;
-
+  const pullTokensFromJSONBin = useCallback(async (context: Extract<StorageTypeCredentials, { provider: StorageProviderType.JSONBIN }>): Promise<RemoteResponseData | null> => {
+    const {
+      id, secret, name, internalId,
+    } = context;
+    if (!id || !secret) {
+      return {
+        status: 'failure',
+        errorMessage: ErrorMessages.ID_NON_EXIST_ERROR,
+      };
+    }
     try {
-      const jsonBinData = await readTokensFromJSONBin({ id, secret });
+      const storage = new JSONBinTokenStorage(id, secret);
+      const data = await storage.retrieve();
       dispatch.uiState.setProjectURL(`https://jsonbin.io/${id}`);
 
-      if (jsonBinData) {
-        postToFigma({
-          type: MessageToPluginTypes.CREDENTIALS,
+      AsyncMessageChannel.ReactInstance.message({
+        type: AsyncMessageTypes.CREDENTIALS,
+        credential: {
           id,
+          internalId,
           name,
           secret,
           provider: StorageProviderType.JSONBIN,
-        });
-        if (jsonBinData?.values) {
-          dispatch.tokenState.setEditProhibited(false);
-
-          return {
-            version: jsonBinData.version,
-            updatedAt: jsonBinData.updatedAt,
-            values: jsonBinData.values,
-          };
-        }
-        notifyToUI('No tokens stored on remote', { error: true });
+        },
+      });
+      if (data?.status === 'failure') {
+        return {
+          status: 'failure',
+          errorMessage: data.errorMessage,
+        };
       }
-
+      if (data?.metadata && data?.tokens) {
+        dispatch.tokenState.setEditProhibited(false);
+        return {
+          ...data,
+          metadata: {},
+        };
+      }
+      notifyToUI('No tokens stored on remote', { error: true });
       return null;
     } catch (e) {
-      notifyToUI('Error fetching from JSONbin, check console (F12)', { error: true });
+      notifyToUI(ErrorMessages.JSONBIN_CREDENTIAL_ERROR, { error: true });
       console.log('Error:', e);
-      return null;
+      return {
+        status: 'failure',
+        errorMessage: ErrorMessages.JSONBIN_CREDENTIAL_ERROR,
+      };
     }
-  }
+  }, [dispatch]);
 
-  async function addJSONBinCredentials(context: ContextObject): Promise<TokenStore | null> {
-    const tokenValues = await pullTokensFromJSONBin(context);
+  const addJSONBinCredentials = useCallback(async (context: Extract<StorageTypeFormValues<false>, { provider: StorageProviderType.JSONBIN }>): Promise<RemoteResponseData | null> => {
+    const {
+      provider, id, name, secret, internalId,
+    } = context;
+    if (!id || !secret) {
+      return {
+        status: 'failure',
+        errorMessage: ErrorMessages.ID_NON_EXIST_ERROR,
+      };
+    }
 
-    if (tokenValues) {
-      dispatch.uiState.setApiData(context);
+    const content = await pullTokensFromJSONBin({
+      provider,
+      id,
+      name,
+      secret,
+      internalId,
+    });
+    if (content?.status === 'failure') {
+      return {
+        status: 'failure',
+        errorMessage: content.errorMessage,
+      };
+    }
+    if (content) {
+      dispatch.uiState.setApiData({
+        provider, id, name, secret, internalId,
+      });
       setStorageType({
-        provider: context,
+        provider: {
+          provider, id, name, internalId,
+        },
         shouldSetInDocument: true,
       });
-      dispatch.tokenState.setLastSyncedState(JSON.stringify(tokenValues.values, null, 2));
-      dispatch.tokenState.setTokenData(tokenValues);
+      saveLastSyncedState(dispatch, content.tokens, content.themes, content.metadata);
+      dispatch.tokenState.setTokenData({
+        values: applyTokenSetOrder(content.tokens, content.metadata?.tokenSetOrder),
+        themes: content.themes,
+        usedTokenSet: usedTokenSets,
+        activeTheme,
+      });
+      return content;
     }
+    return content;
+  }, [
+    dispatch,
+    pullTokensFromJSONBin,
+    setStorageType,
+    usedTokenSets,
+    activeTheme,
+  ]);
 
-    return tokenValues;
-  }
-
-  return {
+  return useMemo(() => ({
     addJSONBinCredentials,
     pullTokensFromJSONBin,
     createNewJSONBin,
-  };
+  }), [
+    addJSONBinCredentials,
+    pullTokensFromJSONBin,
+    createNewJSONBin,
+  ]);
 }

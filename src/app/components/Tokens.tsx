@@ -16,19 +16,22 @@ import Box from './Box';
 import IconButton from './IconButton';
 import IconListing from '@/icons/listing.svg';
 import IconJSON from '@/icons/json.svg';
-import IconDisclosure from '@/icons/disclosure.svg';
-import { styled } from '@/stitches.config';
 import useConfirm from '../hooks/useConfirm';
 import { track } from '@/utils/analytics';
-import { UpdateMode } from '@/types/state';
 import useTokens from '../store/useTokens';
 import parseTokenValues from '@/utils/parseTokenValues';
 import parseJson from '@/utils/parseJson';
 import AttentionIcon from '@/icons/attention.svg';
 import { TokensContext } from '@/context';
 import {
-  activeTokenSetSelector, showEditFormSelector, tokenFilterSelector, tokensSelector, tokenTypeSelector, updateModeSelector, usedTokenSetSelector,
+  activeTokenSetSelector, manageThemesModalOpenSelector, scrollPositionSetSelector, showEditFormSelector, tokenFilterSelector, tokensSelector, tokenTypeSelector, updateModeSelector, usedTokenSetSelector,
 } from '@/selectors';
+import { ThemeSelector } from './ThemeSelector';
+import IconToggleableDisclosure from '@/app/components/IconToggleableDisclosure';
+import { styled } from '@/stitches.config';
+import { ManageThemesModal } from './ManageThemesModal';
+import { TokenSetStatus } from '@/constants/TokenSetStatus';
+import { UpdateMode } from '@/constants/UpdateMode';
 
 const StyledButton = styled('button', {
   '&:focus, &:hover': {
@@ -37,23 +40,8 @@ const StyledButton = styled('button', {
   },
 });
 
-const StyledIconDisclosure = styled(IconDisclosure, {
-  transition: 'transform 0.2s ease-in-out',
-  variants: {
-    open: {
-      true: {
-        transform: 'rotate(0deg)',
-      },
-      false: {
-        transform: 'rotate(180deg)',
-      },
-    },
-  },
-});
-
 const StatusToast = ({ open, error }: { open: boolean; error: string | null }) => {
   const [isOpen, setOpen] = React.useState(open);
-
   React.useEffect(() => {
     setOpen(open);
   }, [open]);
@@ -73,8 +61,8 @@ const StatusToast = ({ open, error }: { open: boolean; error: string | null }) =
           >
             <Box
               css={{
-                background: '$dangerBgEmphasis',
-                color: '$textOnEmphasis',
+                background: '$dangerBg',
+                color: '$onDanger',
                 fontSize: '$xsmall',
                 fontWeight: '$bold',
                 padding: '$3 $4',
@@ -106,18 +94,35 @@ function Tokens({ isActive }: { isActive: boolean }) {
   const activeTokenSet = useSelector(activeTokenSetSelector);
   const usedTokenSet = useSelector(usedTokenSetSelector);
   const showEditForm = useSelector(showEditFormSelector);
+  const manageThemesModalOpen = useSelector(manageThemesModalOpenSelector);
+  const scrollPositionSet = useSelector(scrollPositionSetSelector);
   const tokenFilter = useSelector(tokenFilterSelector);
   const dispatch = useDispatch<Dispatch>();
   const [activeTokensTab, setActiveTokensTab] = React.useState('list');
   const [tokenSetsVisible, setTokenSetsVisible] = React.useState(true);
   const { getStringTokens } = useTokens();
-
+  const tokenDiv = React.useRef<HTMLDivElement>(null);
   const updateMode = useSelector(updateModeSelector);
   const { confirm } = useConfirm();
   const shouldConfirm = React.useMemo(() => updateMode === UpdateMode.DOCUMENT, [updateMode]);
 
+  React.useEffect(() => {
+    if (tokenDiv.current) {
+      tokenDiv.current.addEventListener('scroll', () => {}, false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (scrollPositionSet && tokenDiv.current && typeof tokenDiv.current.scrollTo === 'function') {
+      tokenDiv.current.scrollTo(0, scrollPositionSet[activeTokenSet]);
+    }
+  }, [activeTokenSet]);
+
   const resolvedTokens = React.useMemo(
-    () => resolveTokenValues(mergeTokenGroups(tokens, [...usedTokenSet, activeTokenSet])),
+    () => resolveTokenValues(mergeTokenGroups(tokens, {
+      ...usedTokenSet,
+      [activeTokenSet]: TokenSetStatus.ENABLED,
+    })),
     [tokens, usedTokenSet, activeTokenSet],
   );
   const [stringTokens, setStringTokens] = React.useState(
@@ -140,7 +145,7 @@ function Tokens({ isActive }: { isActive: boolean }) {
 
   const memoizedTokens = React.useMemo(() => {
     if (tokens[activeTokenSet]) {
-      return mappedTokens(tokens[activeTokenSet], tokenFilter).sort((a, b) => {
+      const mapped = mappedTokens(tokens[activeTokenSet], tokenFilter).sort((a, b) => {
         if (b[1].values) {
           return 1;
         }
@@ -149,6 +154,12 @@ function Tokens({ isActive }: { isActive: boolean }) {
         }
         return 0;
       });
+      return mapped.map(([key, { values, isPro, ...schema }]) => ({
+        key,
+        values,
+        schema,
+        isPro,
+      }));
     }
     return [];
   }, [tokens, activeTokenSet, tokenFilter]);
@@ -156,6 +167,17 @@ function Tokens({ isActive }: { isActive: boolean }) {
   const handleSaveJSON = React.useCallback(() => {
     dispatch.tokenState.setJSONData(stringTokens);
   }, [dispatch.tokenState, stringTokens]);
+  const handleToggleTokenSetsVisibility = React.useCallback(() => {
+    setTokenSetsVisible(!tokenSetsVisible);
+  }, [tokenSetsVisible]);
+
+  const handleSetTokensTabToList = React.useCallback(() => {
+    setActiveTokensTab('list');
+  }, []);
+
+  const handleSetTokensTabToJSON = React.useCallback(() => {
+    setActiveTokensTab('json');
+  }, []);
 
   const handleUpdate = React.useCallback(async () => {
     if (activeTokensTab === 'list') {
@@ -199,7 +221,13 @@ function Tokens({ isActive }: { isActive: boolean }) {
     } else {
       dispatch.tokenState.setHasUnsavedChanges(false);
     }
-  }, [tokens, stringTokens, activeTokenSet]);
+  }, [dispatch, tokens, stringTokens, activeTokenSet]);
+
+  const saveScrollPositionSet = React.useCallback((tokenSet: string) => {
+    if (tokenDiv.current) {
+      dispatch.uiState.setScrollPositionSet({ ...scrollPositionSet, [tokenSet]: tokenDiv.current?.scrollTop });
+    }
+  }, [dispatch, scrollPositionSet]);
 
   if (!isActive) return null;
 
@@ -224,7 +252,7 @@ function Tokens({ isActive }: { isActive: boolean }) {
           }}
         >
           <Box>
-            <StyledButton style={{ height: '100%' }} type="button" onClick={() => setTokenSetsVisible(!tokenSetsVisible)}>
+            <StyledButton style={{ height: '100%' }} type="button" onClick={handleToggleTokenSetsVisibility}>
               <Box
                 css={{
                   fontWeight: '$bold',
@@ -237,11 +265,12 @@ function Tokens({ isActive }: { isActive: boolean }) {
                 }}
               >
                 {activeTokenSet}
-                <StyledIconDisclosure open={tokenSetsVisible} />
+                <IconToggleableDisclosure open={tokenSetsVisible} />
               </Box>
             </StyledButton>
           </Box>
           <TokenFilter />
+          <ThemeSelector />
           <Box
             css={{
               display: 'flex',
@@ -254,7 +283,7 @@ function Tokens({ isActive }: { isActive: boolean }) {
             <IconButton
               variant={activeTokensTab === 'list' ? 'primary' : 'default'}
               dataCy="tokensTabList"
-              onClick={() => setActiveTokensTab('list')}
+              onClick={handleSetTokensTabToList}
               icon={<IconListing />}
               tooltipSide="bottom"
               tooltip="Listing"
@@ -262,7 +291,7 @@ function Tokens({ isActive }: { isActive: boolean }) {
             <IconButton
               variant={activeTokensTab === 'json' ? 'primary' : 'default'}
               dataCy="tokensTabJSON"
-              onClick={() => setActiveTokensTab('json')}
+              onClick={handleSetTokensTabToJSON}
               icon={<IconJSON />}
               tooltipSide="bottom"
               tooltip="JSON"
@@ -282,7 +311,7 @@ function Tokens({ isActive }: { isActive: boolean }) {
         >
           {tokenSetsVisible && (
             <Box>
-              <TokenSetSelector />
+              <TokenSetSelector saveScrollPositionSet={saveScrollPositionSet} />
             </Box>
           )}
           <Box
@@ -303,22 +332,23 @@ function Tokens({ isActive }: { isActive: boolean }) {
                 />
               </Box>
             ) : (
-              <Box css={{ width: '100%', paddingBottom: '$6' }} className="content scroll-container">
-                {memoizedTokens.map(([key, group]) => (
+              <Box ref={tokenDiv} css={{ width: '100%', paddingBottom: '$6' }} className="content scroll-container">
+                {memoizedTokens.map(({
+                  key, values, isPro, schema,
+                }) => (
                   <div key={key}>
                     <TokenListing
                       tokenKey={key}
-                      label={group.label || key}
-                      explainer={group.explainer}
-                      schema={group.schema}
-                      property={group.property}
-                      tokenType={group.type}
-                      values={group.values}
+                      label={schema.label || key}
+                      schema={schema}
+                      values={values}
+                      isPro={isPro}
                     />
                   </div>
                 ))}
                 <ToggleEmptyButton />
                 {showEditForm && <EditTokenFormModal resolvedTokens={resolvedTokens} />}
+                {manageThemesModalOpen && <ManageThemesModal />}
               </Box>
             )}
           </Box>

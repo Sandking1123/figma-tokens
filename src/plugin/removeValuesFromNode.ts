@@ -4,7 +4,10 @@ export default function removeValuesFromNode(node: BaseNode, prop: Properties) {
   // BORDER RADIUS
   switch (prop) {
     case 'borderRadius':
-      if ('cornerRadius' in node && typeof node.cornerRadius !== 'undefined') {
+      if (
+        'cornerRadius' in node && typeof node.cornerRadius !== 'undefined'
+        && node.type !== 'SHAPE_WITH_TEXT' && node.type !== 'CONNECTOR'
+      ) {
         node.cornerRadius = 0;
       }
       break;
@@ -33,13 +36,36 @@ export default function removeValuesFromNode(node: BaseNode, prop: Properties) {
         node.strokeWeight = 0;
       }
       break;
+    case 'borderWidthTop':
+      if ('strokeTopWeight' in node && typeof node.strokeWeight !== 'undefined') {
+        node.strokeWeight = 0;
+      }
+      break;
+    case 'borderWidthRight':
+      if ('strokeRightWeight' in node && typeof node.strokeWeight !== 'undefined') {
+        node.strokeWeight = 0;
+      }
+      break;
+    case 'borderWidthBottom':
+      if ('strokeBottomWeight' in node && typeof node.strokeWeight !== 'undefined') {
+        node.strokeWeight = 0;
+      }
+      break;
+    case 'borderWidthLeft':
+      if ('strokeLeftWeight' in node && typeof node.strokeWeight !== 'undefined') {
+        node.strokeWeight = 0;
+      }
+      break;
     case 'boxShadow':
       if ('effects' in node && typeof node.effects !== 'undefined') {
         node.effects = node.effects.filter((effect) => effect.type !== 'DROP_SHADOW');
       }
       break;
     case 'opacity':
-      if ('opacity' in node && typeof node.opacity !== 'undefined') {
+      if (
+        'opacity' in node && typeof node.opacity !== 'undefined'
+        && node.type !== 'STICKY' && node.type !== 'SHAPE_WITH_TEXT' && node.type !== 'CODE_BLOCK' && node.type !== 'CONNECTOR'
+      ) {
         node.opacity = 1;
       }
       break;

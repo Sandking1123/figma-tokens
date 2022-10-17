@@ -1,49 +1,46 @@
 import React from 'react';
 import { useSelector } from 'react-redux';
-import isEqual from 'lodash.isequal';
 import { uiStateSelector } from '@/selectors';
 import createAnnotation from './createAnnotation';
 import Stack from './Stack';
 import Text from './Text';
+import Box from './Box';
+import { isEqual } from '@/utils/isEqual';
+import { Direction } from '@/constants/Direction';
+import IconButton from './IconButton';
 
 export default function AnnotationBuilder() {
   const uiState = useSelector(uiStateSelector, isEqual);
 
+  const createAnnotationLeft = React.useCallback(() => {
+    createAnnotation(uiState.mainNodeSelectionValues, Direction.LEFT);
+  }, [uiState]);
+
+  const createAnnotationTop = React.useCallback(() => {
+    createAnnotation(uiState.mainNodeSelectionValues, Direction.TOP);
+  }, [uiState]);
+
+  const createAnnotationBottom = React.useCallback(() => {
+    createAnnotation(uiState.mainNodeSelectionValues, Direction.BOTTOM);
+  }, [uiState]);
+
+  const createAnnotationRight = React.useCallback(() => {
+    createAnnotation(uiState.mainNodeSelectionValues, Direction.RIGHT);
+  }, [uiState]);
+
   return Object.entries(uiState.mainNodeSelectionValues).length > 0 ? (
-    <Stack direction="row" align="center" justify="between">
-      <Text bold>Add as annotation</Text>
-      <Stack direction="row" gap={0}>
-        <button
-          className="p-1 button button-secondary"
-          type="button"
-          onClick={() => createAnnotation(uiState.mainNodeSelectionValues, 'left')}
-        >
-          ←
-        </button>
-        <Stack direction="column">
-          <button
-            className="p-1 button button-secondary"
-            type="button"
-            onClick={() => createAnnotation(uiState.mainNodeSelectionValues, 'top')}
-          >
-            ↑
-          </button>
-          <button
-            className="p-1 button button-secondary"
-            type="button"
-            onClick={() => createAnnotation(uiState.mainNodeSelectionValues, 'bottom')}
-          >
-            ↓
-          </button>
+    <Box css={{ borderBottom: '1px solid $border', paddingBottom: '$4', marginBottom: '$4' }}>
+      <Stack direction="row" align="center" justify="between">
+        <Text bold>Add as annotation</Text>
+        <Stack direction="row" align="center" gap={0}>
+          <IconButton onClick={createAnnotationLeft} icon="←" />
+          <Stack direction="column">
+            <IconButton onClick={createAnnotationTop} icon="↑" />
+            <IconButton onClick={createAnnotationBottom} icon="↓" />
+          </Stack>
+          <IconButton onClick={createAnnotationRight} icon="→" />
         </Stack>
-        <button
-          className="p-1 button button-secondary"
-          type="button"
-          onClick={() => createAnnotation(uiState.mainNodeSelectionValues, 'right')}
-        >
-          →
-        </button>
       </Stack>
-    </Stack>
+    </Box>
   ) : null;
 }

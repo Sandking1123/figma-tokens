@@ -1,15 +1,16 @@
 import React from 'react';
+import get from 'just-safe-get';
 import { useSelector } from 'react-redux';
-import Icon from './Icon';
 import Button from './Button';
-import { postToFigma } from '@/plugin/notifiers';
-import { MessageToPluginTypes } from '@/types/messages';
 import { useDelayedFlag } from '@/hooks';
 import { BackgroundJobs } from '@/constants/BackgroundJobs';
 import { backgroundJobsSelector } from '@/selectors';
 import Stack from './Stack';
+import Spinner from './Spinner';
+import { AsyncMessageTypes } from '@/types/AsyncMessages';
+import { AsyncMessageChannel } from '@/AsyncMessageChannel';
 
-const backgroundJobTitles = {
+export const backgroundJobTitles = {
   [BackgroundJobs.NODEMANAGER_UPDATE]: 'Finding and caching tokens...',
   [BackgroundJobs.NODEMANAGER_FINDNODESWITHDATA]: 'Determing nodes to update...',
   [BackgroundJobs.PLUGIN_UPDATENODES]: 'Updating nodes...',
@@ -20,6 +21,9 @@ const backgroundJobTitles = {
   [BackgroundJobs.UI_CREATESINGLETOKEN]: 'Creating token...',
   [BackgroundJobs.UI_DELETETOKENGROUP]: 'Deleting token...',
   [BackgroundJobs.UI_DUPLICATETOKEN]: 'Duplicating token...',
+  [BackgroundJobs.UI_REDOING]: 'Redoing action...',
+  [BackgroundJobs.UI_UNDOING]: 'Undoing action...',
+  [BackgroundJobs.UI_ATTACHING_LOCAL_STYLES]: 'Attaching local styles to theme...',
 };
 
 export default function LoadingBar() {
@@ -41,8 +45,8 @@ export default function LoadingBar() {
   );
 
   const handleCancel = React.useCallback(() => {
-    postToFigma({
-      type: MessageToPluginTypes.CANCEL_OPERATION,
+    AsyncMessageChannel.ReactInstance.message({
+      type: AsyncMessageTypes.CANCEL_OPERATION,
     });
   }, []);
 
@@ -50,8 +54,10 @@ export default function LoadingBar() {
     return null;
   }
 
+  const message = get(backgroundJobTitles, backgroundJobs[backgroundJobs.length - 1]?.name ?? '', '');
+
   return (
-    <div className="fixed w-full z-20" data-cy="loadingBar">
+    <div className="fixed w-full z-20" data-testid="loadingBar" data-cy="loadingBar">
       <Stack
         direction="row"
         align="center"
@@ -60,12 +66,10 @@ export default function LoadingBar() {
           backgroundColor: '$bgSubtle', padding: '$2', borderRadius: '$default', margin: '$2',
         }}
       >
-        <div className="inline-flex rotate">
-          <Icon name="loading" />
-        </div>
+        <Spinner />
         <div className="flex flex-grow items-center justify-between">
           <div className="font-medium text-xxs">
-            {backgroundJobTitles[backgroundJobs[backgroundJobs.length - 1]?.name] ?? 'Hold on, updating...'}
+            {message || 'Hold on, updating...'}
             {expectedWaitTimeInSeconds >= 1 && (
               `(${expectedWaitTimeInSeconds}s remaining)`
             )}

@@ -9,3 +9,6 @@ cypress/videos
 .env.production
 package
 .idea
+storybook-static
+coverage
+.DS_Store
